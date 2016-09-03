@@ -16,7 +16,7 @@ LOCAL_C_INCLUDES := \
 
 LOCAL_ARM_MODE   := arm
 LOCAL_CFLAGS     += -DHAVE_CONFIG_H
-LOCAL_SHARED_LIBRARIES := glib_shared gthread_shared
+LOCAL_SHARED_LIBRARIES := glib2_shared gthread_shared
 
 LOCAL_SRC_FILES := \
 	src/midi/fluid_midi.c \

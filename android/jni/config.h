@@ -188,7 +188,7 @@
 #define VERSION "1.1.6"
 
 /* Define to do all DSP in single floating point precision */
-/* #undef WITH_FLOAT */
+#define WITH_FLOAT 1
 
 /* Define to profile the DSP code */
 /* #undef WITH_PROFILING */
