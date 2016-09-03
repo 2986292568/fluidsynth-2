@@ -43,7 +43,7 @@ static int fluid_settings_tokenize(const char *s, char *buf, char **ptr);
 /* Common structure to all settings nodes */
 typedef struct {
   int type;             /**< fluid_types_enum */
-} fluid_setting_node_t; 
+} fluid_setting_node_t;
 
 typedef struct {
   fluid_setting_node_t node;
@@ -294,7 +294,9 @@ fluid_settings_init(fluid_settings_t* settings)
   fluid_return_if_fail (settings != NULL);
 
   fluid_synth_settings(settings);
+#ifndef ANDROID
   fluid_shell_settings(settings);
+#endif
   fluid_player_settings(settings);
   fluid_file_renderer_settings(settings);
   fluid_audio_driver_settings(settings);
