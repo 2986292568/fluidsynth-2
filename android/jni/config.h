@@ -188,7 +188,11 @@
 #define VERSION "1.1.6"
 
 /* Define to do all DSP in single floating point precision */
+#if defined(__arm64) || defined(__aarch64__) || defined(__x86_64) || defined(_M_X64) || defined(__ia64__)
+/* #undef WITH_FLOAT */
+#else
 #define WITH_FLOAT 1
+#endif
 
 /* Define to profile the DSP code */
 /* #undef WITH_PROFILING */
