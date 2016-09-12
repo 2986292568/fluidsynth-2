@@ -1781,7 +1781,7 @@ int fluid_player_seek(fluid_player_t *player, int mticks) {
  * Get the current play position in midi ticks
  */
 int fluid_player_get_ticks(fluid_player_t *player) {
-    return player->cur_ticks;   /* the current position in midi ticks */
+    return player->seek_ticks >= 0 ? player->seek_ticks : player->cur_ticks;   /* the current position in midi ticks */
 }
 
 /**
