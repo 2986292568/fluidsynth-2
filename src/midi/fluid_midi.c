@@ -1267,6 +1267,7 @@ new_fluid_player(fluid_synth_t *synth)
     player->deltatime = 4.0;
     player->cur_msec = 0;
     player->cur_ticks = 0;
+    player->seek_ticks = -1;
     fluid_player_set_playback_callback(player, fluid_synth_handle_midi_event, synth);
 
     player->use_system_timer = fluid_settings_str_equal(synth->settings,
@@ -1387,20 +1388,20 @@ fluid_player_get_track(fluid_player_t *player, int i)
 }
 
 /**
- * Change the MIDI callback function. This is usually set to 
+ * Change the MIDI callback function. This is usually set to
  * fluid_synth_handle_midi_event, but can optionally be changed
  * to a user-defined function instead, for intercepting all MIDI
- * messages sent to the synth. You can also use a midi router as 
+ * messages sent to the synth. You can also use a midi router as
  * the callback function to modify the MIDI messages before sending
- * them to the synth. 
+ * them to the synth.
  * @param player MIDI player instance
  * @param handler Pointer to callback function
  * @param handler_data Parameter sent to the callback function
  * @returns FLUID_OK
  * @since 1.1.4
  */
-int 
-fluid_player_set_playback_callback(fluid_player_t* player, 
+int
+fluid_player_set_playback_callback(fluid_player_t* player,
     handle_midi_event_func_t handler, void* handler_data)
 {
     player->playback_callback = handler;
@@ -1610,6 +1611,11 @@ fluid_player_callback(void *data, unsigned int msec)
             }
         }
 
+        if (player->seek_ticks >= 0) {  /* seek until player->seek_ticks */
+            fluid_player_seek_local (player, msec);
+            player->seek_ticks = -1;
+        }
+
         player->cur_msec = msec;
         player->cur_ticks = (player->start_ticks
                 + (int) ((double) (player->cur_msec - player->start_msec)
@@ -1705,13 +1711,87 @@ fluid_player_get_status(fluid_player_t *player)
 }
 
 /**
- * Enable looping of a MIDI player 
+ * Seek to position player->seek_ticks in midi ticks. Should be called from fluid_player_callback.
+ */
+void fluid_player_seek_local(fluid_player_t *player, unsigned int msec) {
+    int i, tempo;
+    unsigned int mticks, tempo_ticks, earliest, t;
+    fluid_track_t *track, *active_track;
+    fluid_midi_event_t *event;
+
+    /* the target seek position in midi-ticks */
+    mticks = player->seek_ticks;
+
+    for (i = 0; i < player->ntracks; i++) { /* only reset tracks if seeking backwards */
+        track = player->track[i];
+        if (track != NULL && track->ticks > mticks) fluid_track_reset (track);
+    }
+    tempo = -1;         /* if positive, value of the last tempo change before target time */
+    tempo_ticks = 0;    /* corresponding time of this tempo change */
+    earliest = 0;       /* time value (midi ticks) where the next (earliest) event occurs */
+    while (1) {
+        active_track = NULL;                /* find track with the next event in overall time order (ealiest) */
+        for (i = 0; i < player->ntracks; i++) {
+            track = player->track[i];
+            if (track == NULL) continue;
+            event = track->cur;
+            if (event == NULL) continue;
+            t = track->ticks;
+            if (active_track != NULL && t >= earliest) continue;   /* event occurs later than (or at same time as) the earliest one */
+            active_track = track;           /* remember track where earliest event occurs */
+            earliest = t;                   /* current earliest time */
+        }
+        if (active_track == NULL) break;    /* no more events available */
+        track = active_track;
+        event = track->cur;                 /* this is the next event in overall time order */
+        if (track->ticks >= mticks) break;  /* we are at the right position */
+
+        if (event->type == MIDI_SET_TEMPO && track->ticks >= tempo_ticks) {
+            tempo = event->param1;          /* the very last tempo change */
+            tempo_ticks = track->ticks;
+        } else if (event->type == NOTE_ON || event->type == NOTE_OFF) {
+            /* skip on/off messages */
+        } else {                            /* but process all other events */
+            if (player->playback_callback)  /* == fluid_synth_handle_midi_event */
+                player->playback_callback (player->playback_userdata, event);   /* playback_userdata == synth instance */
+        }
+        track->ticks += event->dtime;       /* move time to the next event in this track */
+        fluid_track_next_event (track);     /* move track->cur to point to the next event */
+    }
+
+    if (tempo > 0) {
+        fluid_player_set_midi_tempo (player, tempo);
+    }
+    player->start_ticks = mticks;   /* tick position of last tempo value (which is now) */
+    player->cur_ticks = mticks;     /* current playback position */
+    player->begin_msec = msec;      /* only used to calculate the duration of playing */
+    player->start_msec = msec;      /* should be the (synth)-time of the last tempo change */
+    /* player->cur_msec is set after return in fluid_player_callback */
+}
+
+/**
+ * Seek to position in midi ticks. The actual seek is performed during the player_callback
+ */
+int fluid_player_seek(fluid_player_t *player, int mticks) {
+    player->seek_ticks = mticks;
+    return player->cur_ticks;
+}
+
+/**
+ * Get the current play position in midi ticks
+ */
+int fluid_player_get_ticks(fluid_player_t *player) {
+    return player->cur_ticks;   /* the current position in midi ticks */
+}
+
+/**
+ * Enable looping of a MIDI player
  * @param player MIDI player instance
  * @param loop Times left to loop the playlist. -1 means loop infinitely.
  * @return Always returns #FLUID_OK
  * @since 1.1.0
  *
- * For example, if you want to loop the playlist twice, set loop to 2 
+ * For example, if you want to loop the playlist twice, set loop to 2
  * and call this function before you start the player.
  */
 int fluid_player_set_loop(fluid_player_t *player, int loop)

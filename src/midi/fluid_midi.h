@@ -192,7 +192,7 @@ enum midi_sysex_tuning_msg_id {
   MIDI_SYSEX_TUNING_BULK_DUMP_REQ_BANK  = 0x03, /**< Bulk tuning dump request (with bank, non-realtime) */
   MIDI_SYSEX_TUNING_BULK_DUMP_BANK      = 0x04, /**< Bulk tuning dump resonse (with bank, non-realtime) */
   MIDI_SYSEX_TUNING_OCTAVE_DUMP_1BYTE   = 0x05, /**< Octave tuning dump using 1 byte values (non-realtime) */
-  MIDI_SYSEX_TUNING_OCTAVE_DUMP_2BYTE   = 0x06, /**< Octave tuning dump using 2 byte values (non-realtime) */ 
+  MIDI_SYSEX_TUNING_OCTAVE_DUMP_2BYTE   = 0x06, /**< Octave tuning dump using 2 byte values (non-realtime) */
   MIDI_SYSEX_TUNING_NOTE_TUNE_BANK      = 0x07, /**< Tuning note change message (with bank, realtime/non-realtime) */
   MIDI_SYSEX_TUNING_OCTAVE_TUNE_1BYTE   = 0x08, /**< Octave tuning message using 1 byte values (realtime/non-realtime) */
   MIDI_SYSEX_TUNING_OCTAVE_TUNE_2BYTE   = 0x09  /**< Octave tuning message using 2 byte values (realtime/non-realtime) */
@@ -296,6 +296,7 @@ struct _fluid_player_t {
   char send_program_change; /* should we ignore the program changes? */
   char use_system_timer;   /* if zero, use sample timers, otherwise use system clock timer */
   char reset_synth_between_songs; /* 1 if system reset should be sent to the synth between songs. */
+  int seek_ticks;           /* new position in tempo ticks (midi ticks) for seeking */
   int start_ticks;          /* the number of tempo ticks passed at the last tempo change */
   int cur_ticks;            /* the number of tempo ticks passed */
   int begin_msec;           /* the time (msec) of the beginning of the file */
@@ -318,6 +319,8 @@ int fluid_player_load(fluid_player_t* player, fluid_playlist_item *item);
 
 void fluid_player_settings(fluid_settings_t* settings);
 
+/* Seeking and Position query */
+void fluid_player_seek_local(fluid_player_t *player, unsigned int msec);
 
 /*
  * fluid_midi_file
