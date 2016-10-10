@@ -194,6 +194,8 @@
 #define WITH_FLOAT 1
 #endif
 
+#define SF3_SUPPORT 1
+
 /* Define to profile the DSP code */
 /* #undef WITH_PROFILING */
 
