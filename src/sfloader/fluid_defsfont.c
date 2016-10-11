@@ -26,6 +26,70 @@
 /* Todo: Get rid of that 'include' */
 #include "fluid_sys.h"
 
+#if SF3_SUPPORT
+#include "vorbis/codec.h"
+#include "vorbis/vorbisenc.h"
+#include "vorbis/vorbisfile.h"
+
+static size_t ovRead(void* ptr, size_t size, size_t nmemb, void* datasource);
+static int ovSeek(void* datasource, ogg_int64_t offset, int whence);
+static long ovTell(void* datasource);
+
+static ov_callbacks ovCallbacks = { ovRead, ovSeek, 0, ovTell };
+
+static long vio_pos;
+static size_t vio_len;
+
+//---------------------------------------------------------
+//   ovRead
+//---------------------------------------------------------
+
+static size_t ovRead(void* ptr, size_t size, size_t nmemb, void* user_data)
+{
+  fluid_sample_t *sample = (fluid_sample_t *)user_data;
+  size_t count = size * nmemb;
+
+  if (count > vio_len - vio_pos)
+      count = vio_len - vio_pos;
+
+  memcpy(ptr, (char *)sample->data + sample->start + vio_pos, count);
+  vio_pos += count;
+
+  return count;
+}
+
+//---------------------------------------------------------
+//   ovSeek
+//---------------------------------------------------------
+
+static int ovSeek(void* user_data, ogg_int64_t offset, int whence)
+{
+  fluid_sample_t *sample = (fluid_sample_t *)user_data;
+
+  switch(whence) {
+    case SEEK_SET:
+        vio_pos = offset;
+        break;
+    case SEEK_CUR:
+        vio_pos += offset;
+        break;
+    case SEEK_END:
+        vio_pos = vio_len + offset;
+        break;
+    }
+
+  return 0;
+}
+
+//---------------------------------------------------------
+//   ovTell
+//---------------------------------------------------------
+
+static long ovTell(void* datasource)
+{
+  return vio_pos;
+}
+#endif
 /***************************************************************
  *
  *                           SFONT LOADER
@@ -1582,6 +1646,14 @@ new_fluid_sample()
 int
 delete_fluid_sample(fluid_sample_t* sample)
 {
+  if (sample->sampletype & FLUID_SAMPLETYPE_OGG_VORBIS)
+  {
+#if SF3_SUPPORT
+    if (sample->data)
+      FLUID_FREE(sample->data);
+#endif
+  }
+
   FLUID_FREE(sample);
   return FLUID_OK;
 }
@@ -1612,6 +1684,88 @@ fluid_sample_import_sfont(fluid_sample_t* sample, SFSample* sfsample, fluid_defs
   sample->pitchadj = sfsample->pitchadj;
   sample->sampletype = sfsample->sampletype;
 
+  if (sample->sampletype & FLUID_SAMPLETYPE_OGG_VORBIS)
+  {
+#if SF3_SUPPORT
+    OggVorbis_File vf;
+    vorbis_info *vi;
+    short *sampledata_ogg;
+
+    // initialize file position indicator and SF_INFO structure
+    vio_pos = 0;
+    vio_len = (sample->end + 1 - sample->start);
+    long frames = 0;
+
+    // open sample as a virtual file in memory
+    if (ov_open_callbacks(sample, &vf, 0, 0, ovCallbacks) == 0)
+    {
+      vi = ov_info(&vf, -1);
+      frames = (long) ov_pcm_total(&vf, -1);
+
+      if(!vi)
+      {
+        ov_clear(&vf);
+        return FLUID_FAILED;
+      }
+
+      if(!frames || !vi->channels)
+      {
+        sample->start = sample->end =
+        sample->loopstart = sample->loopend =
+        sample->valid = 0;
+        sample->data = NULL;
+        ov_clear(&vf);
+        return FLUID_OK;
+      }
+
+      sampledata_ogg = (short *)FLUID_MALLOC(frames * vi->channels * sizeof(short));
+      if (!sampledata_ogg)
+      {
+        FLUID_LOG(FLUID_ERR, "Out of memory");
+        ov_clear(&vf);
+        return FLUID_FAILED;
+      }
+
+      // uncompress sample data stream
+      long ret = 0;
+      int current_section = 0;
+      char* data = (char*) sampledata_ogg;
+      do {
+        ret = ov_read(&vf, data, 4096, 0, 2, 1, &current_section);
+        data += ret;
+      } while (ret > 0);
+
+      ov_clear(&vf);
+    }
+    else
+    {
+      return FLUID_FAILED;
+    }
+
+    // point sample data to uncompressed data stream
+    sample->data = sampledata_ogg;
+    sample->start = 0;
+    sample->end = (frames) - 1;
+
+    /* loop is fowled?? (cluck cluck :) */
+    if (sample->loopend > sample->end ||
+        sample->loopstart >= sample->loopend ||
+        sample->loopstart <= sample->start)
+    {
+      /* can pad loop by 8 samples and ensure at least 4 for loop (2*8+4) */
+      if ((sample->end - sample->start) >= 20)
+      {
+        sample->loopstart = sample->start + 8;
+        sample->loopend = sample->end - 8;
+      }
+      else /* loop is fowled, sample is tiny (can't pad 8 samples) */
+      {
+        sample->loopstart = sample->start + 1;
+        sample->loopend = sample->end - 1;
+      }
+    }
+#endif
+  }
   if (sample->sampletype & FLUID_SAMPLETYPE_ROM) {
     sample->valid = 0;
     FLUID_LOG(FLUID_WARN, "Ignoring sample %s: can't use ROM samples", sample->name);
@@ -1937,6 +2091,10 @@ process_info (int size, SFData * sf, FILE * fd)
 	    return (FAIL);
 	  }
 
+#if SF3_SUPPORT
+	  if (sf->version.major == 3) {}
+  	  else
+#endif
 	  if (sf->version.major > 2) {
 	    FLUID_LOG (FLUID_WARN,
 		      _("Sound font version is %d.%d which is newer than"
@@ -2958,6 +3116,9 @@ fixup_sample (SFData * sf)
 
 	  return (OK);
 	}
+      /* compressed samples get fixed up after decompression */
+      else if (sam->sampletype & FLUID_SAMPLETYPE_OGG_VORBIS)
+	{}
       else if (sam->loopend > sam->end || sam->loopstart >= sam->loopend
 	|| sam->loopstart <= sam->start)
 	{			/* loop is fowled?? (cluck cluck :) */
